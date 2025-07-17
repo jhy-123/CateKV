@@ -1,5 +1,5 @@
 # CateKV
-This is the official repository of "CateKV: On Sequential Consistency for Long-context.LLM Acceleration"
+This is the official repository of "CateKV: On Sequential Consistency for Long-context LLM Acceleration"
 
 [Paper](https://openreview.net/pdf?id=u7dlwgKstN)
 
