@@ -44,7 +44,7 @@ class LLM:
         elif self.attn_mode.lower() == 'catekv_dynamic':
             self.kv_cache = CateKV_dynamic(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens, top_threshold=top_threshold, top_fraction=top_fraction, cv_threshold=cv_threshold,model_name=self.model_name)
         elif self.attn_mode.lower() == 'catekv':
-            self.kv_cache = CateKV(config, head_classification_path=head_classification_path,max_length=self.max_length, device='cpu', dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens,cv_threshold=cv_threshold,full_fraction=full_fraction)
+            self.kv_cache = CateKV(config, head_classification_path=head_classification_path,max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens,cv_threshold=cv_threshold,full_fraction=full_fraction)
         else:
             raise ValueError(f"Invalid attention mode {self.attn_mode}")
 

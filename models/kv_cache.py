@@ -1072,10 +1072,10 @@ class CateKV:
         gc.collect()
         torch.cuda.empty_cache()
         torch.cuda.synchronize()
-        # self.k_cache_full = {k: v.to('cuda:0') for k, v in self.k_cache_full.items()}
-        # self.v_cache_full = {k: v.to('cuda:0') for k, v in self.v_cache_full.items()}
-        # self.k_cache_sparse = {k: v.to('cuda:0') for k, v in self.k_cache_sparse.items()}
-        # self.v_cache_sparse = {k: v.to('cuda:0') for k, v in self.v_cache_sparse.items()}
+        self.k_cache_full = {k: v.to('cuda:0') for k, v in self.k_cache_full.items()}
+        self.v_cache_full = {k: v.to('cuda:0') for k, v in self.v_cache_full.items()}
+        self.k_cache_sparse = {k: v.to('cuda:0') for k, v in self.k_cache_sparse.items()}
+        self.v_cache_sparse = {k: v.to('cuda:0') for k, v in self.v_cache_sparse.items()}
 
     def get_kv_len(self):
         return self.prefill + self.gen_offset

@@ -1,4 +1,4 @@
-export CUDA_VISIBLE_DEVICES=7
+export CUDA_VISIBLE_DEVICES=0
 OMP_NUM_THREADS=48 torchrun --standalone --nnodes=1 --nproc_per_node 1 test/eval_acc.py \
     --model_name ckpt/Llama-3-8B-Instruct-Gradient-1048k \
     --datalen 131072 \
@@ -7,3 +7,4 @@ OMP_NUM_THREADS=48 torchrun --standalone --nnodes=1 --nproc_per_node 1 test/eval
     --sparse_budget 2048 \
     --rank 160 \
     --chunk_size 8 \
+    # --minference

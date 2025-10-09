@@ -36,8 +36,10 @@ def parse_args() -> Namespace:
     p = ArgumentParser()
     p.add_argument("--model_name", type=str, default="ckpt/Llama-3-8B-Instruct-Gradient-1048k")
     p.add_argument("--head_classification_path", type=str, default="select_headmask/llama3")
-    p.add_argument("--datalen", type=str, default=500*1024)
+    p.add_argument("--datalen", type=int, default=500*1024)
     p.add_argument("--method", type=str, default="CateKV") 
+    p.add_argument("--cv_threshold", type=float, default=0.4, help="Ratio of adaptive heads") 
+    p.add_argument("--full_fraction", type=float, default=1.0, help="Retention ratio in adaptive head")
     return p.parse_args()
 
 if __name__ == '__main__':
@@ -48,6 +50,8 @@ if __name__ == '__main__':
     length = args.datalen
     method = args.method
     head_classification_path = args.head_classification_path
+    cv_threshold = args.cv_threshold # r
+    full_fraction = args.full_fraction # eta
 
     sparse_budget = 2048
     temperature = 1.0
@@ -58,8 +62,6 @@ if __name__ == '__main__':
     last_q = 64
     init_tokens = sparse_budget // 32
     recent_tokens = sparse_budget // 8
-    cv_threshold = 0.4 # r
-    full_fraction = 1.0 # eta
     minference = False
 
     dataset_maxlen = 122 * 1024
