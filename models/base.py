@@ -26,7 +26,7 @@ from tqdm import tqdm
 from flash_attn import flash_attn_with_kvcache
 
 from .tensor_op import sample_token, layer_norm, minference_prefill_kernel,repeat_kv
-from .kv_cache import KV_Cache, ShadowKVCache, QuestCache, CateKV_dynamic, CateKV
+from .kv_cache import KV_Cache, SnapKVCache, PyramidKVCache, QuestCache, CateKV_dynamic_Cache, CateKVCache, CateKV_quest_Cache
 
 class LLM:
 
@@ -37,14 +37,18 @@ class LLM:
     def init_kv_cache(self, head_classification_path: str, sparse_budget: int, rank: int, chunk_size: int, last_q: int, init_tokens: int, recent_tokens: int, top_threshold: float, top_fraction: float, cv_threshold: float, full_fraction: float, config):
         if self.attn_mode == 'full':
             self.kv_cache = KV_Cache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size)
-        elif self.attn_mode.lower() == 'shadowkv':
-            self.kv_cache = ShadowKVCache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, rank=rank, chunk_size=chunk_size)
+        elif self.attn_mode.lower() == 'snapkv':
+            self.kv_cache = SnapKVCache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, recent_tokens=recent_tokens)
+        elif self.attn_mode.lower() == 'pyramidkv':
+            self.kv_cache = PyramidKVCache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, recent_tokens=recent_tokens)
         elif self.attn_mode.lower() == 'quest':
             self.kv_cache = QuestCache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size)
         elif self.attn_mode.lower() == 'catekv_dynamic':
-            self.kv_cache = CateKV_dynamic(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens, top_threshold=top_threshold, top_fraction=top_fraction, cv_threshold=cv_threshold,model_name=self.model_name)
+            self.kv_cache = CateKV_dynamic_Cache(config, max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens, top_threshold=top_threshold, top_fraction=top_fraction, cv_threshold=cv_threshold,model_name=self.model_name)
         elif self.attn_mode.lower() == 'catekv':
-            self.kv_cache = CateKV(config, head_classification_path=head_classification_path,max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens,cv_threshold=cv_threshold,full_fraction=full_fraction)
+            self.kv_cache = CateKVCache(config, head_classification_path=head_classification_path,max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens,cv_threshold=cv_threshold,full_fraction=full_fraction)
+        elif self.attn_mode.lower() == 'catekv_quest':
+            self.kv_cache = CateKV_quest_Cache(config, head_classification_path=head_classification_path,max_length=self.max_length, device=self.device, dtype=self.dtype, batch_size=self.batch_size, sparse_budget=sparse_budget, chunk_size=chunk_size, last_q=last_q, init_tokens=init_tokens, recent_tokens=recent_tokens,cv_threshold=cv_threshold,full_fraction=full_fraction)
         else:
             raise ValueError(f"Invalid attention mode {self.attn_mode}")
 
@@ -78,7 +82,7 @@ class LLM:
     @torch.inference_mode()
     def prefill(self, input_ids: torch.LongTensor):
         self.kv_cache.clear()
-        logits = self.inference(input_ids=input_ids, position_ids=self.get_ctx(input_ids)) # (1,130359) (1,130359)
+        logits = self.inference(input_ids=input_ids, position_ids=self.get_ctx(input_ids))
 
         assert self.kv_cache.get_kv_len() == input_ids.shape[-1], f"KV length mismatch, got {self.kv_cache.get_kv_len()}, expected {input_ids.shape[-1]}"
         return logits
@@ -127,14 +131,10 @@ class LLM:
                 hidden_states = minference_prefill_kernel(query_states=query_states, key_states=key_states, value_states=value_states, minference_parttern=self.minference_parttern[layer_idx])
             else:
                 hidden_states = flash_attn_with_kvcache(q=query_states.transpose(1, 2), k_cache=key_states.transpose(1, 2), v_cache=value_states.transpose(1, 2), causal=True)
-
-        elif isinstance(self.kv_cache, ShadowKVCache):
-
+        elif isinstance(self.kv_cache, SnapKVCache) or isinstance(self.kv_cache, PyramidKVCache):
             if q_len > 4*1024: # prefill
-                # svd unrope key and save
-                self.kv_cache.get_svd(key_states, layer_idx=layer_idx)
                 query_states, key_states = self.apply_rotary_pos_emb(query_states, key_states, position_ids)
-                self.kv_cache.prefill_kv_cache(value_states, layer_idx, key_states, query_states[:, :, -1:])
+                self.kv_cache.prefill_kv_cache(query_states, key_states, value_states, layer_idx)
                 
                 if self.minference == True:
                     hidden_states = minference_prefill_kernel(query_states=query_states, key_states=key_states, value_states=value_states, minference_parttern=self.minference_parttern[layer_idx])
@@ -142,28 +142,11 @@ class LLM:
                     hidden_states = flash_attn_with_kvcache(q=query_states.transpose(1, 2), k_cache=key_states.transpose(1, 2), v_cache=value_states.transpose(1, 2), causal=True)
 
             else: # decode
-                # rope query and key
                 query_states, key_states = self.apply_rotary_pos_emb(query_states, key_states, position_ids)
-
-                # update kv cache to buffer
                 self.kv_cache.update_kv_cache(key_states, value_states, layer_idx)
 
                 # get retrieval idx
-                position_ids = self.kv_cache.get_retrieval_position_ids(layer_idx=layer_idx, query_states=query_states)
-
-                # multi-stream
-                curr_stream = torch.cuda.current_stream()
-                get_value_stream = self.kv_cache.copy_stream
-
-                with torch.cuda.stream(get_value_stream):
-                    get_value_stream.wait_stream(curr_stream)
-                    value_states = self.kv_cache.get_value_cache(layer_idx, position_ids)
-
-                # gather key cache from GPU and RoPE it (should be hide by CPU offloading time)
-                key_states = self.kv_cache.get_key_cache(layer_idx=layer_idx, position_ids=position_ids, rope_func=self.apply_rotary_pos_emb_single, cos_sin_cache=self.cos_sin_cache)
-
-                curr_stream.wait_stream(get_value_stream)
-
+                key_states, value_states = self.kv_cache.collect_kv(layer_idx=layer_idx, query_states=query_states)
                 # flash attention
                 hidden_states = flash_attn_with_kvcache(q=query_states.transpose(1, 2), k_cache=key_states.transpose(1, 2), v_cache=value_states.transpose(1, 2), causal=True)
         elif isinstance(self.kv_cache, QuestCache):
@@ -289,7 +272,24 @@ class LLM:
                     hidden_states[:, :, full_head_query_index, :] = full_hidden_states
                 if sparse_head_query_index.numel() > 0:
                     hidden_states[:, :, sparse_head_query_index, :] = sparse_hidden_states
+        elif isinstance(self.kv_cache, CateKV_quest_Cache):
+            if q_len > 4*1024: # prefill
+                query_states, key_states = self.apply_rotary_pos_emb(query_states, key_states, position_ids)
+                self.kv_cache.prefill_kv_cache(query_states,key_states, value_states, layer_idx,None)
+                
+                if self.minference == True:
+                    hidden_states = minference_prefill_kernel(query_states=query_states, key_states=key_states, value_states=value_states, minference_parttern=self.minference_parttern[layer_idx])
+                else:
+                    hidden_states = flash_attn_with_kvcache(q=query_states.transpose(1, 2), k_cache=key_states.transpose(1, 2), v_cache=value_states.transpose(1, 2), causal=True)
 
+            else: # decode
+                # rope query and key
+                query_states, key_states = self.apply_rotary_pos_emb(query_states, key_states, position_ids)
+                # update kv cache to buffer
+                self.kv_cache.update_kv_cache(key_states, value_states, layer_idx)
+                # get retrieval idx
+                combined_k,combined_v = self.kv_cache.collect_kv(layer_idx=layer_idx, query_states=query_states)
+                hidden_states = flash_attn_with_kvcache(q=query_states.transpose(1, 2), k_cache=combined_k.transpose(1, 2), v_cache=combined_v.transpose(1, 2), causal=True)
         else:
             raise ValueError(f"Invalid attention mode {self.attn_mode}")
 

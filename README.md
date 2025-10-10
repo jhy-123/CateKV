@@ -24,8 +24,7 @@ We currently provide several supported models for convenience:
 
 ## Headmask Generation (Optional)
 
-If you are using one of the **supported models**, we provide the pre-generated headmasks in the `select_headmask` directory.  
-These can be used directly, and you may **skip this step**.
+If you are using one of the **supported models**, we provide the pre-generated headmasks in the `select_headmask` directory. These can be used directly, and you may **skip this step**.
 
 If you wish to use a **new model** or **re-generate the headmask**, we provide a script to do so:
 
@@ -33,7 +32,7 @@ If you wish to use a **new model** or **re-generate the headmask**, we provide a
 bash run_headmask.sh
 ```
 
-For the reference dataset, we use the Variable Tracking task from the RULER benchmark by default. You may replace it with another task if desired. The goal of this step is to determine the optimal percentile-based threshold k and scaling factor α for head selection.
+For the reference dataset, we use the Variable Tracking task from the RULER benchmark by default. This choice is not fixed, it serves as a reference to identify the optimal headmask under different percentile-based thresholds k and scaling factors α.
 
 After selecting the optimal parameters, the final headmask can be produced using:
 ```bash
